@@ -12,6 +12,7 @@ library(dplyr)
 library(data.table)
 library(devtools)
 library(ggbiplot)
+library(ggplot2)
 
 setwd("C:/Users/A.Kotronoulas/Dropbox (Volition)/Aris/!Science/!Projects/CNC proteomics/EpiQMAx IP nov 2019/Epimax 2019 multi")
 
@@ -100,34 +101,66 @@ Common_peptides<-df_final%>%  filter(Sample_1!=0&Sample_2!=0&Sample_4!=0)
 zero_peptides<-df_final %>%  filter(Sample_4==0&Sample_5==0&Sample_1==0)
 
 
-#### Use metadata to introduce the name of the protein for each peptide
-CRC_Unique_peptides_meta<-inner_join(metadata_mod_pep,CRC_Unique_peptides,  by= "Unique Sequence")
-Control_Unique_peptides_meta<-inner_join(metadata_mod_pep,Control_Unique_peptides,  by= "Unique Sequence")
-Common_peptides_meta<-inner_join(metadata_mod_pep,Common_peptides,  by= "Unique Sequence")
+### From now on I will do stat analysis only for the common peptides
 
-# Save it as .txt delimited files so they can be read by Perseus 
-write.table(CRC_Unique_peptides_meta, file = "CRC_Unique_peptides.txt", sep = "\t",
-            row.names = TRUE, col.names = NA)
-write.table(Control_Unique_peptides_meta, file = "Control_Unique_peptides.txt", sep = "\t",
-            row.names = TRUE, col.names = NA)
-write.table(Common_peptides_meta, file = "Common_peptides.txt", sep = "\t",
-            row.names = TRUE, col.names = NA)
+Common_peptides<-column_to_rownames(Common_peptides, var = "Unique Sequence")
+Common_peptides_log<-log(Common_peptides)
+Common_peptides_log<-rownames_to_column(Common_peptides_log, var = "Unique Sequence")
 
 
+hist(Common_peptides_log$Sample_1, breaks=30, col=rgb(0.3,0,0,0.5), xlab="log(intensity)", 
+     ylab="nm of peptides", main="distribution of peptide log(intensity) in each sample" )
+
+# Second with add=T to plot on top
+hist(Common_peptides_log$Sample_2, breaks=30, xlim=c(0,300), col=rgb(0.6,0,0,0.5), add=T)
+# third with add=T to plot on top
+hist(Common_peptides_log$Sample_3, breaks=30, xlim=c(0,300), col=rgb(1,0,0,0.5), add=T)
+
+hist(Common_peptides_log$Sample_4, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(Common_peptides_log$Sample_5, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(Common_peptides_log$Sample_3, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+
+
+
+################# PCA #####################
 
 # transpose
-t_Common_peptides <- as.data.frame(t(Common_peptides))
-t_Common_peptides <-t_Common_peptides %>%  row_to_names(row_number = 1)
 
-t_Common_peptides<-rownames_to_column(t_Common_peptides, var = "sample")
+t_Common_peptides_log <- as.data.frame(t(Common_peptides_log))
+t_Common_peptides_log <-t_Common_peptides_log %>%  row_to_names(row_number = 1)
+t_Common_peptides_log<-rownames_to_column(t_Common_peptides_log, var = "sample")
 
-t_Common_peptides<-t_Common_peptides %>% mutate(Group = 
-                                      case_when(t_Common_peptides$sample == c("Sample_1","Sample_2", 
+
+# Assign Groups
+t_Common_peptides_log<-t_Common_peptides_log %>% mutate(Group = 
+                                      case_when(t_Common_peptides_log$sample == c("Sample_1","Sample_2", 
                                                                         "Sample_3") ~ 'CRC',
-                                                t_Common_peptides$sample == c("Sample_4","Sample_5", 
+                                                t_Common_peptides_log$sample == c("Sample_4","Sample_5", 
                                                                         "Sample_6") ~ 'Control' )) %>%  group_by(Group)
 
-t_Common_peptides<-t_Common_peptides[, c(1, 187, 2:186)]
+t_com_pep_log<-t_Common_peptides_log[, c(1, 187, 2:186)]
+t_com_pep_log[3:187] <- sapply(t_com_pep_log[3:187], as.numeric)
+t_com_pep_log<-column_to_rownames(t_com_pep_log, var = "sample")
 
 
+# then
+t_com_pep_log.pca <- prcomp(t_com_pep_log[,-1], center = TRUE,scale. = TRUE)
+
+fviz_eig(t_com_pep_log.pca) #Visualize eigenvalues (screen plot).
+
+t_com_pep_log.scores<- t_com_pep_log.pca$x#this will give you the principal components and sd
+summary(t_com_pep_log.pca)
+
+t_com_pep_log.loadings<-t_com_pep_log.pca$rotation #this will give you the loadings
+print(t_com_pep_log.loadings)
+
+t_com_pep_log.scores<- t_com_pep_log.pca$x #this will give you the scores
+print(t_com_pep_log.scores)
+
+ggbiplot(t_com_pep_log.pca)
+
+ggbiplot(t_com_pep_log.pca,ellipse=TRUE,obs.scale = 1, var.scale = 1,var.axes=FALSE, 
+         groups=t_com_pep_log$Group )+
+  scale_colour_manual(name="Origin", values= c("forest green", "red3"))+
+  theme_minimal()
 
