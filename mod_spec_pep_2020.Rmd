@@ -1,0 +1,621 @@
+---
+title: "mod_spec_papt_2020"
+output: html_document
+date: "2022-11-09"
+---
+
+```{r load required packages, include=FALSE}
+library(tidyverse)
+library(dendextend)
+library(cluster)
+library(RColorBrewer)
+library(gplots)
+library(janitor)
+library(rstatix)
+library(ggpubr)
+library(dplyr)
+library(data.table)
+library(devtools)
+library(ggbiplot)
+library(ggplot2)
+library(factoextra)
+library(plotly)
+
+
+
+```
+
+
+
+```{r setwd and read csv}
+
+setwd("C:/Users/A.Kotronoulas/Dropbox (Volition)/Aris/!Science/!Projects/!CNC proteomics/EpiQMax_March2020/Maxquant multi 2020")
+
+# read csv
+mod_pep_2020<-read_csv("modificationSpecificPeptides_2020.csv")
+metadata_mod_pep_2020<-read_csv("metadata_mod_pep_2020.csv")
+```
+
+
+
+```{r prepare dataset}
+
+# select columns of intensities
+mod_pep_2020<-mod_pep_2020[, c(1,104:139)]
+
+# In order to find the average between the 2 technical replicates, I convert all zeros to NAs.
+mod_pep_2020[mod_pep_2020 == 0] <- NA
+
+# Find average
+
+mod_pep_2020$mean_S1 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 01_1`, `Intensity 01_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S2 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 02_1`, `Intensity 02_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S3 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 03_1`, `Intensity 03_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S4 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 04_1`, `Intensity 04_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S5 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 05_1`, `Intensity 05_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S6 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 06_1`, `Intensity 06_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S7 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 07_1`, `Intensity 07_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S8 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 08_1`, `Intensity 08_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S9 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 09_1`, `Intensity 09_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S10 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 10_1`, `Intensity 10_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S11 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 11_1`, `Intensity 11_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S12 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 12_1`, `Intensity 12_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S13 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 13_1`, `Intensity 13_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S14 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 14_1`, `Intensity 14_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S15 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 15_1`, `Intensity 15_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S16 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 16_1`, `Intensity 16_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S17 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 17_1`, `Intensity 17_2`)), na.rm = TRUE)
+mod_pep_2020$mean_S18 <- rowMeans(subset(mod_pep_2020, select = c(`Intensity 18_1`, `Intensity 18_2`)), na.rm = TRUE)
+
+
+
+
+mod_pep_2020_means<-mod_pep_2020[,c(1,38:55)]
+mod_pep_2020_means[2:19] <- lapply(mod_pep_2020_means[2:19], as.numeric)
+
+
+
+#### From now on I will analyse the data as follows for each group (CRC or control):
+#       1. Peptides that have NAs for all samples will be turned to zero
+#       2. Peptides with one NA (up to 33%) will be imputed
+#       3. Peptides with more than one NA (more than 33%) but not all NA will be discarded   
+
+
+# For CRC samples:
+# select CRC samples 
+mod_pep_2020_CRC<-mod_pep_2020_means %>% select(c("Unique Sequence", "mean_S1", "mean_S4", "mean_S7", "mean_S10",
+                                            "mean_S13", "mean_S16"))
+# select peptides with all NA and replace with 0
+cnt_na_CRC <- apply(mod_pep_2020_CRC, 1, function(z) sum(is.na(z)))
+mod_pep_2020_CRC_All_na<-mod_pep_2020_CRC[cnt_na_CRC > 5,]
+mod_pep_2020_CRC_All_na[is.na(mod_pep_2020_CRC_All_na)] <- 0
+# select peptides with less than 33% NA 
+mod_pep_2020_CRC_less_33_na<-mod_pep_2020_CRC[cnt_na_CRC <= 2,]
+
+
+# bind df
+mod_pep_2020_CRC_final<-rbind(mod_pep_2020_CRC_All_na, mod_pep_2020_CRC_less_33_na)
+mod_pep_2020_CRC_final[2:7] <- lapply(mod_pep_2020_CRC_final[2:7], as.numeric)
+
+
+# For CONTROL samples:
+# select control samples
+ mod_pep_2020_control<-mod_pep_2020_means %>% select(c("Unique Sequence", "mean_S3", "mean_S6",
+                                                 "mean_S9", "mean_S12","mean_S15", "mean_S18"))
+ # select peptides with all NA and replace with 0
+ cnt_na_control <- apply(mod_pep_2020_control, 1, function(z) sum(is.na(z)))
+ mod_pep_2020_control_All_na<-mod_pep_2020_control[cnt_na_control > 5,]
+ mod_pep_2020_control_All_na[is.na(mod_pep_2020_control_All_na)] <- 0
+ # select peptides with less than 33% NA 
+ mod_pep_2020_control_less_33_na<-mod_pep_2020_control[cnt_na_control <= 2,]
+
+
+ # bind df
+ mod_pep_2020_control_final<-rbind(mod_pep_2020_control_All_na, mod_pep_2020_control_less_33_na)
+ mod_pep_2020_control_final[2:7] <- lapply(mod_pep_2020_control_final[2:7], as.numeric)
+ 
+
+### Join the 2 dfs from CRC and CONTROL 
+ df_final_2020<-merge(mod_pep_2020_CRC_final, mod_pep_2020_control_final, all = TRUE)
+ df_final_2020[is.na(df_final_2020)] <- 0
+ 
+```
+
+
+```{r CRC_Unique_peptides}
+
+CRC_Unique_peptides_2020<-df_final_2020 %>%  filter(mean_S3==0&mean_S6==0&mean_S9==0&
+                                                 mean_S12==0&mean_S15==0&mean_S18==0)
+  CRC_Unique_peptides_2020<-CRC_Unique_peptides_2020 %>% filter(mean_S1!=0|mean_S4!=0|
+                                                       mean_S7!=0|mean_S10!=0|mean_S13!=0|
+                                                       mean_S16!=0)
+
+CRC_Unique_peptides_2020_meta<-inner_join(metadata_mod_pep_2020, CRC_Unique_peptides_2020, by='Unique Sequence')
+
+write_csv(CRC_Unique_peptides_2020_meta, "meta_CRC_Unique_peptides_2020.csv")
+write_csv(CRC_Unique_peptides_2020, "CRC_Unique_peptides_2020.csv")
+
+
+
+```
+
+
+```{r Control_Unique_peptides}
+
+Control_Unique_peptides_2020<-df_final_2020 %>%  filter(mean_S1==0&mean_S4==0&mean_S7==0&
+                                                          mean_S10==0&mean_S13==0&mean_S16==0)
+  Control_Unique_peptides_2020<-Control_Unique_peptides_2020 %>% filter(mean_S3!=0|mean_S6!=0|                                                mean_S9!=0|mean_S12!=0|mean_S15!=0|mean_S18!=0)
+
+Control_Unique_peptides_2020_meta<-inner_join(metadata_mod_pep_2020, Control_Unique_peptides_2020, by='Unique Sequence')
+
+
+write_csv(Control_Unique_peptides_2020_meta, "meta_Control_Unique_peptides_2020.csv")
+write_csv(Control_Unique_peptides_2020, "Control_Unique_peptides_2020.csv")
+```
+
+```{r no_all_zero_peptides}
+
+no_all_zero_peptides_2020<-df_final_2020%>%  filter(mean_S1!=0|mean_S4!=0|mean_S7!=0|                                                           mean_S10!=0|mean_S13!=0|
+                                                 mean_S16!=0|mean_S3!=0|mean_S6!=0|
+                                                 mean_S9!=0|mean_S12!=0|mean_S15!=0|
+                                                 mean_S18!=0)
+
+no_all_zero_peptides_2020_meta<-inner_join(metadata_mod_pep_2020, no_all_zero_peptides_2020, by='Unique Sequence')
+
+write_csv(no_all_zero_peptides_2020_meta, "meta_no_all_zero_peptides_2020.csv")
+write_csv(no_all_zero_peptides_2020, "no_all_zero_peptides_2020.csv")
+
+
+```
+
+```{r only_Common_peptides}
+
+
+
+Common_peptides_2020<-no_all_zero_peptides_2020 %>% filter(mean_S3!=0|mean_S6!=0|mean_S9!=0|                                                              mean_S12!=0|mean_S15!=0|mean_S18!=0)
+Common_peptides_2020<-Common_peptides_2020 %>% filter(mean_S1!=0|mean_S4!=0| mean_S7!=0|                                                             mean_S10!=0|mean_S13!=0|mean_S16!=0)
+
+write_csv(Common_peptides_2020, "Common_peptides_2020.csv")
+
+```
+
+```{r zero_peptides}
+
+zero_peptides_2020<-df_final_2020 %>%  filter(c(mean_S1==0&mean_S4==0&mean_S7==0&mean_S10==0&
+                                                mean_S13==0&mean_S16==0&mean_S3==0&mean_S6==0&
+                                                mean_S9==0&mean_S12==0& mean_S15==0&mean_S18==0))
+```
+
+```{r analysis of no_all_zero_peptides}
+
+### From now on I will do stat analysis only for the common peptides
+
+#First IMPUTE for each group, then calculate the log and then the z-score for each peptide
+no_all_zero_peptides_2020<-read_csv("no_all_zero_peptides_2020.csv")
+
+#IMPUTE
+no_all_zero_peptides_2020_imputed<-no_all_zero_peptides_2020
+no_all_zero_peptides_2020_imputed[no_all_zero_peptides_2020_imputed == 0] <- NA
+
+
+#CRC only
+no_all_zero_peptides_2020_imputed$mean_S1[is.na(no_all_zero_peptides_2020_imputed$mean_S1)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S1)] 
+no_all_zero_peptides_2020_imputed$mean_S4[is.na(no_all_zero_peptides_2020_imputed$mean_S4)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S4)] 
+no_all_zero_peptides_2020_imputed$mean_S7[is.na(no_all_zero_peptides_2020_imputed$mean_S7)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S7)] 
+no_all_zero_peptides_2020_imputed$mean_S10[is.na(no_all_zero_peptides_2020_imputed$mean_S10)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S10)] 
+no_all_zero_peptides_2020_imputed$mean_S13[is.na(no_all_zero_peptides_2020_imputed$mean_S13)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S13)] 
+no_all_zero_peptides_2020_imputed$mean_S16[is.na(no_all_zero_peptides_2020_imputed$mean_S16)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S16)] 
+
+#Control only
+no_all_zero_peptides_2020_imputed$mean_S3[is.na(no_all_zero_peptides_2020_imputed$mean_S3)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S3)] 
+no_all_zero_peptides_2020_imputed$mean_S6[is.na(no_all_zero_peptides_2020_imputed$mean_S6)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S6)] 
+no_all_zero_peptides_2020_imputed$mean_S9[is.na(no_all_zero_peptides_2020_imputed$mean_S9)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S9)] 
+no_all_zero_peptides_2020_imputed$mean_S12[is.na(no_all_zero_peptides_2020_imputed$mean_S12)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S12)] 
+no_all_zero_peptides_2020_imputed$mean_S15[is.na(no_all_zero_peptides_2020_imputed$mean_S15)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S15)] 
+no_all_zero_peptides_2020_imputed$mean_S18[is.na(no_all_zero_peptides_2020_imputed$mean_S18)] <- 
+  rowMeans(no_all_zero_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(no_all_zero_peptides_2020_imputed$mean_S18)] 
+
+
+# Calculate log
+
+
+no_all_zero_peptides_2020_imputed_log10<-no_all_zero_peptides_2020_imputed
+
+no_all_zero_peptides_2020_imputed_log10$log_S1<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S1)
+no_all_zero_peptides_2020_imputed_log10$log_S4<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S4)
+no_all_zero_peptides_2020_imputed_log10$log_S7<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S7)
+no_all_zero_peptides_2020_imputed_log10$log_S10<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S10)
+no_all_zero_peptides_2020_imputed_log10$log_S13<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S13)
+no_all_zero_peptides_2020_imputed_log10$log_S16<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S16)
+no_all_zero_peptides_2020_imputed_log10$log_S3<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S3)
+no_all_zero_peptides_2020_imputed_log10$log_S6<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S6)
+no_all_zero_peptides_2020_imputed_log10$log_S9<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S9)
+no_all_zero_peptides_2020_imputed_log10$log_S12<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S12)
+no_all_zero_peptides_2020_imputed_log10$log_S15<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S15)
+no_all_zero_peptides_2020_imputed_log10$log_S18<-log10(no_all_zero_peptides_2020_imputed_log10$mean_S18)
+
+no_all_zero_peptides_2020_imputed_log10<-no_all_zero_peptides_2020_imputed_log10[, c(1,14:25)]
+no_all_zero_peptides_2020_imputed_log10[is.na(no_all_zero_peptides_2020_imputed_log10)] <- 0
+
+no_all_zero_peptides_2020_imputed_log10_meta<-inner_join(metadata_mod_pep_2020, no_all_zero_peptides_2020_imputed_log10, by='Unique Sequence')
+
+
+
+write_csv(no_all_zero_peptides_2020_imputed_log10, "no_all_zero_peptides_2020_imputed_log10.csv")
+
+write_csv(no_all_zero_peptides_2020_imputed_log10_meta, "meta_no_all_zero_peptides_2020_imputed_log10.csv")
+
+t_no_all_zero_peptides_2020_imputed_log10 <- as.data.frame(t(no_all_zero_peptides_2020_imputed_log10))
+t_no_all_zero_peptides_2020_imputed_log10 <-t_no_all_zero_peptides_2020_imputed_log10 %>%  row_to_names(row_number = 1)
+t_no_all_zero_peptides_2020_imputed_log10<-rownames_to_column(t_no_all_zero_peptides_2020_imputed_log10, var = "sample")
+t_no_all_zero_peptides_2020_imputed_log10[2:332] <- lapply(t_no_all_zero_peptides_2020_imputed_log10[2:332], as.numeric)
+
+write_csv(t_no_all_zero_peptides_2020_imputed_log10, "t_no_all_zero_peptides_2020_imputed_log10.csv")
+
+
+
+
+hist(no_all_zero_peptides_2020_imputed_log10$log_S1, breaks=30, col=rgb(0.1,0,0,0.5), xlab="log(intensity)", 
+     ylab="nm of peptides", main="distribution of peptide log(intensity) in each sample" )
+
+
+# third with add=T to plot on top
+hist(no_all_zero_peptides_2020_imputed_log10$log_S4, breaks=30, xlim=c(0,300), col=rgb(0.4,0,0,0.5), add=T)
+hist(no_all_zero_peptides_2020_imputed_log10$log_S7, breaks=30, xlim=c(0,300), col=rgb(0.5,0,0,0.5), add=T)
+hist(no_all_zero_peptides_2020_imputed_log10$log_S10, breaks=30, xlim=c(0,300), col=rgb(0.6,0,0,0.5), add=T)
+hist(no_all_zero_peptides_2020_imputed_log10$log_S13, breaks=30, xlim=c(0,300), col=rgb(0.7,0,0,0.5), add=T)
+hist(no_all_zero_peptides_2020_imputed_log10$log_S16, breaks=30, xlim=c(0,300), col=rgb(0.8,0,0,0.5), add=T)
+
+hist(no_all_zero_peptides_2020_imputed_log10$log_S3, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(no_all_zero_peptides_2020_imputed_log10$log_S6, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(no_all_zero_peptides_2020_imputed_log10$log_S9, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(no_all_zero_peptides_2020_imputed_log10$log_S12, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(no_all_zero_peptides_2020_imputed_log10$log_S15, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(no_all_zero_peptides_2020_imputed_log10$log_S18, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+
+
+
+```
+
+
+
+```{r PCA of no_all_zero_peptides}
+
+t_no_all_zero_peptides_2020_imputed_log10<-read_csv("t_no_all_zero_peptides_2020_imputed_log10.csv")
+
+t_no_all_zero_peptides_2020_imputed_log10_groups<-t_no_all_zero_peptides_2020_imputed_log10
+# Assign Groups
+t_no_all_zero_peptides_2020_imputed_log10_groups<-t_no_all_zero_peptides_2020_imputed_log10 %>% 
+  mutate(Group = case_when(t_no_all_zero_peptides_2020_imputed_log10_groups$sample == c("log_S1","log_S4", 
+                                                                                   "log_S7","log_S10","log_S13","log_S16") ~ 'CRC',
+                           t_no_all_zero_peptides_2020_imputed_log10_groups$sample == c("log_S3","log_S6", 
+                                                                                   "log_S9","log_S12","log_S15","log_S18") ~ 'Control' )) %>%  group_by(Group)
+
+t_naz_pep_log<-t_no_all_zero_peptides_2020_imputed_log10_groups[, c(1, 333, 2:332)]
+t_naz_pep_log[3:333] <- sapply(t_naz_pep_log[3:333], as.numeric)
+t_naz_pep_log<-column_to_rownames(t_naz_pep_log, var = "sample")
+
+
+# then
+t_naz_pep_log.pca <- prcomp(t_naz_pep_log[,-1], center = TRUE,scale. = TRUE)
+
+fviz_eig(t_naz_pep_log.pca) #Visualize eigenvalues (screen plot).
+
+t_naz_pep_log.scores<- t_naz_pep_log.pca$x#this will give you the principal components and sd
+summary(t_naz_pep_log.pca)
+
+t_naz_pep_log.loadings<-t_naz_pep_log.pca$rotation #this will give you the loadings
+
+t_naz_pep_log.scores<- t_naz_pep_log.pca$x #this will give you the scores
+print(t_naz_pep_log.scores)
+
+ggbiplot(t_naz_pep_log.pca)
+
+ggbiplot(t_naz_pep_log.pca,ellipse=TRUE,obs.scale = 1, var.scale = 1,var.axes=FALSE, 
+         groups=t_naz_pep_log$Group )+
+  scale_colour_manual(name="Origin", values= c("forest green", "red3"))+
+  theme_minimal()
+
+
+ggbiplot(t_naz_pep_log.pca,ellipse=TRUE,obs.scale = 1, ellipse.prob = 0.68, var.scale = 1,var.axes=FALSE, 
+         circle = FALSE, circle.prob = 0.69,
+         groups=t_naz_pep_log$Group,labels=rownames(t_naz_pep_log) )+
+  scale_colour_manual(name="Origin", values= c("forest green", "red3", "orange", "blue"))+
+  scale_linetype_manual(values=10, breaks = waiver(), na.value = "blank")+
+  theme_classic()
+
+```
+
+
+
+```{r 3D-PCA of no_all_zero_peptides}
+
+t_naz_pep_log.pca <- prcomp(t_naz_pep_log[,-1], center = TRUE,scale. = TRUE)
+
+prin_comp_1 <- prcomp(t_naz_pep_log[,-1], rank. = 3)
+
+components_1 <- prin_comp_1[["x"]]
+components_1 <- data.frame(components_1)
+components_1$PC2 <- -components_1$PC2
+components_1$PC3 <- -components_1$PC3
+components_1 = cbind(components_1, t_naz_pep_log$Group)
+
+tot_explained_variance_ratio_1 <- summary(prin_comp_1)[["importance"]]['Proportion of Variance',]
+tot_explained_variance_ratio_1 <- 100 * sum(tot_explained_variance_ratio_1)
+
+tit = 'YOOOO'
+
+fig_1 <- plot_ly(components_1, x = ~PC1, y = ~PC2, z = ~PC3, color = ~t_naz_pep_log$Group, colors = c('#636EFA','#EF553B') ) %>%
+  add_markers(size = 12)
+
+
+fig_1 <- fig_1 %>%
+  layout(
+    title = tit,
+    scene = list(bgcolor = "#e5ecf6")
+  )
+
+fig_1
+
+
+
+
+```
+
+```{r clustering of no_all_zero_peptides}
+
+
+
+library(NbClust)
+
+### STEP 1:  !!!Find the Optimal Number of Clusters
+
+###### Using fviz_nbclust() function
+?fviz_nbclust()
+
+fviz_nbclust(no_all_zero_peptides_2020_imputed_log10[,-1], pam, method = "wss")                                                     #wss method uses within clusters sum of squares. 
+                                      #From the graph, you have to find the "elbow" in  
+                                      #order to decide the number of clusters 
+
+fviz_nbclust(no_all_zero_peptides_2020_imputed_log10[,-1], pam, method = "gap_stat")           #gap_stat method uses within clusters sum of squares.
+
+fviz_nbclust(no_all_zero_peptides_2020_imputed_log10[,-1], pam, method = "silhouette") 
+
+
+
+###### Using NBclust() function
+
+### Look the best number of clusters suggested by various indexes
+### and see what is the most commonly suggested number
+
+?NbClust()
+
+
+res_all<-NbClust(no_all_zero_peptides_2020_imputed_log10[,-1], distance = "euclidean", min.nc=2, max.nc=10, method = "kmeans", index = "all")
+
+
+
+
+### STEP 2: perform the clustering 
+
+
+YYY<-t_naz_pep_log
+
+YYY<-rownames_to_column(YYY, var = "sample")
+
+########################################################
+###Hierarchical Cluster analysis (linkage clustering)###
+########################################################
+
+###GENERATE CLUSTERS ###
+
+df_y <- scale(YYY[,-c(1:2)])#scale each variable to have a mean of 0 and sd of 1
+df_y[is.na(df_y)] <- 0 #replace na with 0
+
+YYY.cor <- dplyr::select(YYY, -sample, -Group) %>% 
+  cor(use="pairwise.complete.obs", method="pearson")
+
+YYY.dist <- as.dist(1 - YYY.cor)
+YYY.tree <- hclust(YYY.dist, method="complete")
+plot(YYY.tree)
+
+YYY.dend <- as.dendrogram(YYY.tree) # create dendrogram object
+nleaves(YYY.dend)  # number of leaves in tree
+nnodes(YYY.dend)  # number of nodes (=leaves + joins) in tree
+
+fviz_nbclust(YYY[,-c(1,2)], pam, method = "wss")
+
+clusters <- cutree(YYY.dend, k=3) #eight major clusters
+table(clusters) #gives the size (n of features) of each cluster
+clusters[1:6] #gives the cluster each feature is in
+plot(color_branches(YYY.dend, k=3),leaflab="none")# plot
+clusters.df <- data.frame(peptide = names(clusters), cluster = clusters) 
+
+
+###Generate HEATMAP for one cluster###
+cluster3.peptide <- filter(clusters.df, cluster == 3)$peptide #filter gene of cluster 3
+
+cat(as.character(cluster3.peptide[1:10]), quote=FALSE,sep="\n") #catalog them
+
+YYY.long <- gather(YYY, peptide, intensity, -sample, -Group) #make tidy (long) format
+color.scheme <- rev(brewer.pal(8,"RdBu")) # generate the color scheme to use
+YYY.long[4] <- lapply(YYY.long[4], as.numeric)
+
+YYY.long %>%
+  ggplot(aes(x = Group, y = peptide)) + 
+  geom_tile(aes(fill = intensity)) +
+  scale_fill_gradientn(colors=color.scheme, limits = c(-2,2)) + 
+  theme(axis.text.y = element_text(size = 1))  # set size of y axis labels
+
+
+
+```
+
+
+
+```{r analysis of only_common_peptides}
+
+
+### From now on I will do stat analysis only for the common peptides
+
+#First IMPUTE for each group, then calculate the log and then the z-score for each peptide
+Common_peptides_2020<-read_csv("Common_peptides_2020.csv")
+
+#IMPUTE
+Common_peptides_2020_imputed<-Common_peptides_2020
+Common_peptides_2020_imputed[Common_peptides_2020_imputed == 0] <- NA
+
+
+#CRC only
+Common_peptides_2020_imputed$mean_S1[is.na(Common_peptides_2020_imputed$mean_S1)] <- 
+  rowMeans(Common_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S1)] 
+Common_peptides_2020_imputed$mean_S4[is.na(Common_peptides_2020_imputed$mean_S4)] <- 
+  rowMeans(Common_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S4)] 
+Common_peptides_2020_imputed$mean_S7[is.na(Common_peptides_2020_imputed$mean_S7)] <- 
+  rowMeans(Common_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S7)] 
+Common_peptides_2020_imputed$mean_S10[is.na(Common_peptides_2020_imputed$mean_S10)] <- 
+  rowMeans(Common_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S10)] 
+Common_peptides_2020_imputed$mean_S13[is.na(Common_peptides_2020_imputed$mean_S13)] <- 
+  rowMeans(Common_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S13)] 
+Common_peptides_2020_imputed$mean_S16[is.na(Common_peptides_2020_imputed$mean_S16)] <- 
+  rowMeans(Common_peptides_2020_imputed[2:7], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S16)] 
+
+#Control only
+Common_peptides_2020_imputed$mean_S3[is.na(Common_peptides_2020_imputed$mean_S3)] <- 
+  rowMeans(Common_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S3)] 
+Common_peptides_2020_imputed$mean_S6[is.na(Common_peptides_2020_imputed$mean_S6)] <- 
+  rowMeans(Common_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S6)] 
+Common_peptides_2020_imputed$mean_S9[is.na(Common_peptides_2020_imputed$mean_S9)] <- 
+  rowMeans(Common_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S9)] 
+Common_peptides_2020_imputed$mean_S12[is.na(Common_peptides_2020_imputed$mean_S12)] <- 
+  rowMeans(Common_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S12)] 
+Common_peptides_2020_imputed$mean_S15[is.na(Common_peptides_2020_imputed$mean_S15)] <- 
+  rowMeans(Common_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S15)] 
+Common_peptides_2020_imputed$mean_S18[is.na(Common_peptides_2020_imputed$mean_S18)] <- 
+  rowMeans(Common_peptides_2020_imputed[8:13], na.rm = TRUE)[is.na(Common_peptides_2020_imputed$mean_S18)] 
+
+
+# Calculate log
+
+
+Common_peptides_2020_imputed_log10<-Common_peptides_2020_imputed
+
+Common_peptides_2020_imputed_log10$log_S1<-log10(Common_peptides_2020_imputed_log10$mean_S1)
+Common_peptides_2020_imputed_log10$log_S4<-log10(Common_peptides_2020_imputed_log10$mean_S4)
+Common_peptides_2020_imputed_log10$log_S7<-log10(Common_peptides_2020_imputed_log10$mean_S7)
+Common_peptides_2020_imputed_log10$log_S10<-log10(Common_peptides_2020_imputed_log10$mean_S10)
+Common_peptides_2020_imputed_log10$log_S13<-log10(Common_peptides_2020_imputed_log10$mean_S13)
+Common_peptides_2020_imputed_log10$log_S16<-log10(Common_peptides_2020_imputed_log10$mean_S16)
+Common_peptides_2020_imputed_log10$log_S3<-log10(Common_peptides_2020_imputed_log10$mean_S3)
+Common_peptides_2020_imputed_log10$log_S6<-log10(Common_peptides_2020_imputed_log10$mean_S6)
+Common_peptides_2020_imputed_log10$log_S9<-log10(Common_peptides_2020_imputed_log10$mean_S9)
+Common_peptides_2020_imputed_log10$log_S12<-log10(Common_peptides_2020_imputed_log10$mean_S12)
+Common_peptides_2020_imputed_log10$log_S15<-log10(Common_peptides_2020_imputed_log10$mean_S15)
+Common_peptides_2020_imputed_log10$log_S18<-log10(Common_peptides_2020_imputed_log10$mean_S18)
+Common_peptides_2020_imputed_log10<-Common_peptides_2020_imputed_log10[, c(1,14:25)]
+
+
+Common_peptides_2020_imputed_log10_meta<-inner_join(metadata_mod_pep_2020, Common_peptides_2020_imputed_log10, by='Unique Sequence')
+
+
+write_csv(Common_peptides_2020_imputed_log10, "Common_peptides_2020_imputed_log10.csv")
+
+write_csv(Common_peptides_2020_imputed_log10_meta, "meta_Common_peptides_2020_imputed_log10.csv")
+
+t_Common_peptides_2020_imputed_log10 <- as.data.frame(t(Common_peptides_2020_imputed_log10))
+t_Common_peptides_2020_imputed_log10 <-t_Common_peptides_2020_imputed_log10 %>%  row_to_names(row_number = 1)
+t_Common_peptides_2020_imputed_log10<-rownames_to_column(t_Common_peptides_2020_imputed_log10, var = "sample")
+t_Common_peptides_2020_imputed_log10[2:226] <- lapply(t_Common_peptides_2020_imputed_log10[2:226], as.numeric)
+
+
+
+
+write_csv(t_Common_peptides_2020_imputed_log10, "t_Common_peptides_2020_imputed_log10.csv")
+
+
+
+
+hist(Common_peptides_2020_imputed_log10$log_S1, breaks=30, col=rgb(0.1,0,0,0.5), xlab="log(intensity)", 
+     ylab="nm of peptides", main="distribution of peptide log(intensity) in each sample" )
+
+
+# third with add=T to plot on top
+hist(Common_peptides_2020_imputed_log10$log_S4, breaks=30, xlim=c(0,300), col=rgb(0.4,0,0,0.5), add=T)
+hist(Common_peptides_2020_imputed_log10$log_S7, breaks=30, xlim=c(0,300), col=rgb(0.5,0,0,0.5), add=T)
+hist(Common_peptides_2020_imputed_log10$log_S10, breaks=30, xlim=c(0,300), col=rgb(0.6,0,0,0.5), add=T)
+hist(Common_peptides_2020_imputed_log10$log_S13, breaks=30, xlim=c(0,300), col=rgb(0.7,0,0,0.5), add=T)
+hist(Common_peptides_2020_imputed_log10$log_S16, breaks=30, xlim=c(0,300), col=rgb(0.8,0,0,0.5), add=T)
+
+hist(Common_peptides_2020_imputed_log10$log_S3, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(Common_peptides_2020_imputed_log10$log_S6, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(Common_peptides_2020_imputed_log10$log_S9, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(Common_peptides_2020_imputed_log10$log_S12, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(Common_peptides_2020_imputed_log10$log_S15, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+hist(Common_peptides_2020_imputed_log10$log_S18, breaks=30, xlim=c(0,300), col=rgb(0,0.3,0,0.5), add=T)
+
+
+
+
+
+```
+
+
+```{r PCA of only_common_peptides}
+
+
+
+t_Common_peptides_2020_imputed_log10<-read_csv("t_Common_peptides_2020_imputed_log10.csv")
+
+t_Common_peptides_2020_imputed_log10_groups<-t_Common_peptides_2020_imputed_log10
+# Assign Groups
+t_Common_peptides_2020_imputed_log10_groups<-t_Common_peptides_2020_imputed_log10 %>% 
+                                  mutate(Group = case_when(t_Common_peptides_2020_imputed_log10_groups$sample == c("log_S1","log_S4", 
+                                                                        "log_S7","log_S10","log_S13","log_S16") ~ 'CRC',
+                                                           t_Common_peptides_2020_imputed_log10_groups$sample == c("log_S3","log_S6", 
+                                                                        "log_S9","log_S12","log_S15","log_S18") ~ 'Control' )) %>%  group_by(Group)
+
+t_com_pep_log<-t_Common_peptides_2020_imputed_log10_groups[, c(1, 228, 2:227)]
+t_com_pep_log[3:228] <- sapply(t_com_pep_log[3:228], as.numeric)
+t_com_pep_log<-column_to_rownames(t_com_pep_log, var = "sample")
+
+
+# then
+t_com_pep_log.pca <- prcomp(t_com_pep_log[,-1], center = TRUE,scale. = TRUE)
+
+fviz_eig(t_com_pep_log.pca) #Visualize eigenvalues (screen plot).
+
+t_com_pep_log.scores<- t_com_pep_log.pca$x#this will give you the principal components and sd
+summary(t_com_pep_log.pca)
+
+t_com_pep_log.loadings<-t_com_pep_log.pca$rotation #this will give you the loadings
+
+t_com_pep_log.scores<- t_com_pep_log.pca$x #this will give you the scores
+print(t_com_pep_log.scores)
+
+ggbiplot(t_com_pep_log.pca)
+
+ggbiplot(t_com_pep_log.pca,ellipse=TRUE,obs.scale = 1, var.scale = 1,var.axes=FALSE, 
+         groups=t_com_pep_log$Group )+
+  scale_colour_manual(name="Origin", values= c("forest green", "red3"))+
+  theme_minimal()
+
+ggbiplot(t_com_pep_log.pca,ellipse=TRUE,obs.scale = 1, ellipse.prob = 0.68, var.scale = 1,var.axes=FALSE, 
+         circle = FALSE, circle.prob = 0.69,
+         groups=t_com_pep_log$Group,labels=rownames(t_com_pep_log) )+
+  scale_colour_manual(name="Origin", values= c("forest green", "red3", "orange", "blue"))+
+  scale_linetype_manual(values=10, breaks = waiver(), na.value = "blank")+
+  theme_classic()
+
+
+```
